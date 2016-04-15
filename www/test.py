@@ -6,13 +6,13 @@ import time
 
 # 测试插入
 
-@asyncio.coroutine
-def test_save(loop):
-    yield from orm.create_pool(user='www-data', password='www-data', database='awesome')
+async def test(loop):
+    await www.orm.create_pool(loop=loop, user='www-data', password='www-data', db='awesome')
+    u=User(name='test22',email='test22@test.com',passwd='test',image='about:blank')
+    await u.save()
 
-    u = User(name='Test', email='test@example.com', passwd='1234567890', image='about:blank')
-
-    yield from u.save()
-
-for x in test():
-    pass
+loop = asyncio.get_event_loop()
+loop.run_until_complete(test(loop))
+loop.close()
+if loop.is_closed():
+    sys.exit(0)
