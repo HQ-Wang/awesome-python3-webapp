@@ -11,6 +11,4 @@ user = User(id=123, name='Michael')
 # 存入数据库:
 user.insert()
 # 查询所有User对象:
-users = User.findAll()
-
-yield from user.save()
+# users = User.findAll()
