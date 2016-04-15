@@ -1,14 +1,18 @@
-from orm import Model, StringField, IntegerField
+from models import User
+import asyncio
+import orm
+import pdb
+import time
 
-class User(Model):
-    __table__ = 'users'
+# 测试插入
 
-    id = IntegerField(primary_key=True)
-    name = StringField()
+@asyncio.coroutine
+def test_save(loop):
+    yield from orm.create_pool(user='www-data', password='www-data', database='awesome')
 
-# 创建实例:
-user = User(id=123, name='Michael')
-# 存入数据库:
-user.insert()
-# 查询所有User对象:
-# users = User.findAll()
+    u = User(name='Test', email='test@example.com', passwd='1234567890', image='about:blank')
+
+    yield from u.save()
+
+for x in test():
+    pass

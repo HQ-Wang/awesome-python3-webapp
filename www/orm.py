@@ -7,11 +7,11 @@
 """
 __author__ = 'Hongqing Wang'
 
-
-
-import asyncio, logging
+import aiomysql     # 异步mysql驱动支持
+import logging      # 支持日志操作
 logging.basicConfig(level=logging.DEBUG)
-import aiomysql
+import asyncio
+import pdb
 
 def log(sql, args=()):
     logging.info('SQL: %s' % sql)
@@ -27,7 +27,7 @@ def create_pool(loop, **kw):
         port=kw.get('port', 3306),              # 默认定义mysql的port固定为3306
         user=kw['user'],                        # user取传入的参数key为user的值
         password=kw['password'],                # password取传入的参数key为password的值
-        db=kw['db'],                            # 数据库名字，db取传入的参数key为db的值
+        db=kw['db'],                            # 数据库名字，做ORM测试的使用请使用db=kw['db']
         charset=kw.get('charset', 'utf8'),      # 默认数据库字符集编码为utf8
         autocommit=kw.get('autocommit', True),  # 自动提交事务设为开启
         maxsize=kw.get('maxsize', 10),          # 连接池最多10条连接，默认是10
@@ -107,6 +107,7 @@ class ModelMetaclass(type):
         # 获取table名称，一般就是Model类的类名：
         tableName = attrs.get('__table__', None) or name # 前面get失败了就直接赋值name
         logging.info('found model: %s (table: %s)' % (name, tableName))
+        print(attrs)
         # 获取所有的Field和主键名：
         mappings = dict()   # 保存属性和值的k，v
         fields = []     # 保存Model类的属性
@@ -161,7 +162,7 @@ class Field(object):
 
     def __init__(self, name, column_type, primary_key, default):
         self.name = name
-        self.column_type =column_type
+        self.column_type = column_type
         self.primary_key = primary_key
         self.default = default
 
@@ -223,8 +224,8 @@ class Model(dict, metaclass=ModelMetaclass):
         return value
 
     @classmethod
-    async def findAll(cls, where=None, args=None, **kw):
-        ' find objects by where clause.'
+    @asyncio.coroutine
+    def findAll(cls, where=None, args=None, **kw):
         sql =[cls.__select__]
         if where:
             sql.append('where')
@@ -246,45 +247,49 @@ class Model(dict, metaclass=ModelMetaclass):
                 args.extend(limit)
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
-        rs = await select(' '.join(sql), args)
+        rs = yield from select(' '.join(sql), args)
         return [cls(**r) for r in rs]
 
     @classmethod
-    async def findNumber(cls, selectField, where=None, args=None):
-        ' find number by select and where.'
+    @asyncio.coroutine
+    def findNumber(cls, selectField, where=None, args=None):
         sql = ['select %s _num_ from `%s`' % (selectField, cls.__table__)]
         if where:
             sql.append('where')
             sql.append(where)
-        rs = await select(' '.join(sql), args, 1)
+        rs = yield from select(' '.join(sql), args, 1)
         if len(rs) == 0:
             return None
         return rs[0]['_num_']
 
     @classmethod
-    async def find(cls, pk):
+    @asyncio.coroutine
+    def find(cls, pk):
         ' find object by primary key.'
-        rs = await select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+        rs = yield from select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
         if len(rs) == 0:
             return None
         return cls(**rs[0])
 
-    async def save(self):
+    @asyncio.coroutine
+    def save(self):
         args = list(map(self.getValueOrDefault, self.__fields__))
         args.append(self.getValueOrDefault(self.__primary_key__))
-        rows = await execute(self.__insert__, args)
+        rows = yield from execute(self.__insert__, args)
         if rows != 1:
            logging.warn('failed to insert record: affected rows: %s' % rows)
 
-    async def update(self):
+    @asyncio.coroutine
+    def update(self):
         args = list(map(self.getValue, self.__fields__))
         args.append(self.getValue(self.__primary_key__))
-        rows = await execute(self.__update__, args)
+        rows = yield from execute(self.__update__, args)
         if rows != 1:
             logging.warn('failed to update by primary key: affected rows: %s' % rows)
 
-    async def remove(self):
+    @asyncio.coroutine
+    def remove(self):
         args = [self.getValue(self.__primary_key__)]
-        rows = await execute(self.__delete__, args)
+        rows = yield from execute(self.__delete__, args)
         if rows != 1:
             logging.warn('failed to remove by primary key: affected rows: %s' % rows)
