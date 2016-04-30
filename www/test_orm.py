@@ -22,7 +22,7 @@ import time
 
 @asyncio.coroutine
 def test_save(loop):
-    yield from orm.create_pool(loop, user='root', password='whq1965821989', db='awesome')
+    yield from orm.create_pool(loop, user='www', password='www', db='awesome')
     u = User(name='hi', email='hi@example.com',
              passwd='hi', image='about:blank')
     # pdb.set_trace()
@@ -84,7 +84,7 @@ def test_update(loop):
 
 
 loop = asyncio.get_event_loop()
-loop.run_until_complete(test_update(loop))
+loop.run_until_complete(test_save(loop))
 __pool = orm.__pool
 __pool.close()  # 需要先关闭连接池
 loop.run_until_complete(__pool.wait_closed())

@@ -27,7 +27,7 @@ def create_pool(loop, **kw):		# 引入关键字后不用显示import asyncio了
         port=kw.get('port', 3306),		# 默认定义mysql的默认端口是3306
         user=kw['user'],				# user是通过关键字参数传进来的
         password=kw['password'],		# 密码也是通过关键字参数传进来的
-        db=kw['db'],                   # 数据库名字，如果做ORM测试的使用请使用db=kw['db']
+        db=kw['db'],                   # 数据库名字database，如果做ORM测试的使用请使用db=kw['db']
         charset=kw.get('charset', 'utf8'),  # 默认数据库字符集是utf8
         autocommit=kw.get('autocommit', True),  # 默认自动提交事务
         maxsize=kw.get('maxsize', 10),		# 连接池最多同时处理10个请求

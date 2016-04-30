@@ -102,7 +102,7 @@ def has_request_arg(fn):
     found = False
     for name, param in params.items():
         if name == 'request':
-            found == True
+            found = True
             continue
         # 只能是位置参数POSITIONAL_ONLY
         if found and (param.kind != inspect.Parameter.VAR_POSITIONAL
@@ -116,7 +116,7 @@ def has_request_arg(fn):
 # 调用URL函数，然后把结果转换为web.Response对象，这样，就完全符合aiohttp框架的要求：
 
 
-class RequestHandler(object): # 初始化一个请求处理类
+class RequestHandler(object):   # 初始化一个请求处理类
 
     def __init__(self, app, fn):
         self._app = app
@@ -240,7 +240,7 @@ def add_routes(app, module_name):
     # 检查传入的module_name是否有'.'
     # Python rfind() 返回字符串最后一次出现的位置，如果没有匹配项则返回-1
     n = module_name.rfind('.')
-    logging.info('n = $s', n)
+    logging.info('n = %s', n)
     # 没有'.'，则传入的是module名
     # __import__方法说明：http://kaimingwan.com/post/python/python-de-nei-zhi-han-shu-__import__
     if n == (-1):

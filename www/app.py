@@ -19,12 +19,10 @@ from datetime import datetime
 from aiohttp import web
 from jinja2 import Environment, FileSystemLoader
 
-# from config import configs
 import orm
-
 from web_frame import add_routes, add_static
 
-from handlers import cookie2user, COOKIE_NAME
+# from handlers import cookie2user, COOKIE_NAME
 
 
 def init_jinja2(app, **kw):
@@ -63,7 +61,7 @@ def init_jinja2(app, **kw):
 # -------------------------------------拦截器middlewares设置---------------------------------
 
 @asyncio.coroutine
-def logger_factory(app, handler): # 在正式处理之前打印日志
+def logger_factory(app, handler): 	# 在正式处理之前打印日志
 	@asyncio.coroutine
 	def logger(request):
 		logging.info('Requst : %s, %s' % (request.method, request.path))
@@ -76,7 +74,7 @@ def data_factory(app, handler):
 	def parse_data(request):
 		if request.method == 'POST':
 			if request.content_type.startswith('application/json'):
-				request._data_ = yield from request.json()
+				request.__data__ = yield from request.json()
 				logging.info('request json : %s' % str(request.__data__))
 			elif request.content_type.startswith('application/x-www-form-urlencoded'):
 				request.__data__ = yield from request.post()
@@ -85,7 +83,7 @@ def data_factory(app, handler):
 	return parse_data
 
 # 是为了验证当前的这个请求用户是否在登录状态下，或是否是伪造的sha1
-
+'''
 @asyncio.coroutine
 def auth_factory(app, handler):
 	@asyncio.coroutine
@@ -106,7 +104,7 @@ def auth_factory(app, handler):
 		# 执行下一步
 		return (yield from handler(request))
 	return auth
-
+'''
 
 # 响应处理
 # 总结下来一个请求在服务端收到后的方法调用顺序是：
@@ -137,7 +135,7 @@ def response_factory(app, handler):
 			if r.startswith('redirect:'):
 				return web.HTTPFound(r[9:])
 			# 不是重定向的话，把字符串当做是html代码来处理
-			resp = web.Response(body=r.encode('UTF-8'))
+			resp = web.Response(body=r.encode('utf-8'))
 			resp.content_type = 'text/html;charset=utf-8'
 			return resp
 		# 如果响应结果为字典
@@ -151,7 +149,7 @@ def response_factory(app, handler):
 				resp.content_type = 'applicaiton/json;charset=utf-8'
 				return resp
 			else:
-				r['__user__'] = request.__user__
+				# r['__user__'] = request.__user__
 				# 如果有'__template__'为key的值，则说明要套用jinja2的模板，'__tempalte__'key对应的为模板网页所在位置
 				resp = web.Response(body=app['__templating__'].get_template(
 					template).render(**r).encode('utf-8'))
@@ -196,13 +194,13 @@ def index(request):
 @asyncio.coroutine
 def init(loop):
 		# 创建数据库连接池，db参数传配置文件里配置db
-	yield from orm.create_pool(loop=loop, **configs.db)
+	yield from orm.create_pool(loop=loop, host='127.0.0.1', port=3306, user='root', password='whq1965821989', db='awesome')
 	# middlewares设置两个中间处理函数
 	# middlewares中的每个factory接收两个参数，app和handler（即middlewares中的下一个handler）
 	# 譬如这里logger_factory的handler参数其实就是response_factory()
 	# middlewares的最后一个元素的handler会通过routes查找到相应的，其实就是routes注册的对应handler
 	app = web.Application(loop=loop, middlewares=[
-		logger_factory, auth_factory, response_factory
+		logger_factory, response_factory
 	])
 	# 初始化jinja2模板
 	init_jinja2(app, filters=dict(datetime=datetime_filter))
@@ -217,6 +215,6 @@ def init(loop):
 
 # 入口，固定写法
 # 获取eventloop然后加入运行事件
-loop=asyncio.get_event_loop()
+loop = asyncio.get_event_loop()
 loop.run_until_complete(init(loop))
 loop.run_forever()
