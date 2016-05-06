@@ -22,7 +22,7 @@ from jinja2 import Environment, FileSystemLoader
 import orm
 from web_frame import add_routes, add_static
 
-# from handlers import cookie2user, COOKIE_NAME
+from handlers import cookie2user, COOKIE_NAME
 
 
 def init_jinja2(app, **kw):
@@ -83,7 +83,7 @@ def data_factory(app, handler):
 	return parse_data
 
 # 是为了验证当前的这个请求用户是否在登录状态下，或是否是伪造的sha1
-'''
+
 @asyncio.coroutine
 def auth_factory(app, handler):
 	@asyncio.coroutine
@@ -104,7 +104,7 @@ def auth_factory(app, handler):
 		# 执行下一步
 		return (yield from handler(request))
 	return auth
-'''
+
 
 # 响应处理
 # 总结下来一个请求在服务端收到后的方法调用顺序是：
