@@ -16,7 +16,7 @@ import markdown2
 from aiohttp import web
 
 from web_frame import get, post
-from apis import APIValueError, APIResourceNotFoundError
+from apis import APIValueError, APIResourceNotFoundError, APIPermissionError
 
 from models import User, Comment, Blog, next_id
 from config import configs
@@ -29,8 +29,28 @@ _RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
 COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs.session.secret
 
-# 根据用户信息拼接一个cookie字符串
+# 检测当前用户是不是admin用户
+def check_admin(request):
+    if request.__user__ is None or not request.__user__.admin:
+        raise APIPermissionError()
 
+# 获取页数，主要是做一些容错处理
+def get_page_index(page_str):
+    p = 1
+    try:
+        p = int(page_str)
+    except ValueError as e:
+        pass
+    if p < 1:
+        p = 1
+    return p
+
+# 把存文本文件转为html格式的文本
+def text2html(text):
+    lines = map(lambda s: '<p>%s</p>' % s.replace('&', '&amp;').replace('<', '&lt;'), filter(lambda s: s.strip() != '', text.split('\n')))
+    return ''.join(lines)
+
+# 根据用户信息拼接一个cookie字符串
 def user2cookie(user, max_age):
     # build cookie string by : id-expires-sha1
     # 到期时间是当前时间+设置的有效时间
@@ -106,42 +126,6 @@ def signin():
         '__template__': 'signin.html'
     }
 
-# 登录请求
-
-@post('/api/authenticate')
-def authenticate(*, email, passwd):
-    # 如果email或passwd为空，都说明有错误
-    if not email:
-        raise APIValueError('email', 'Invalid email')
-    if not passwd:
-        raise APIValueError('passwd', 'Invalid passwd')
-    # 根据email在库里查询匹配的用户
-    users = yield from User.findAll('email=?', [email])
-    # 没找到用户，返回用户不存在
-    if len(users) == 0:
-        raise APIValueError('email', 'email not exist')
-    # 取第一个查到用户，理论上就一个
-    user = users[0]
-    # 按存储密码的方式获取出请求传入的密码字段的sha1值
-    sha1 = hashlib.sha1()
-    sha1.update(user.id.encode('utf-8'))
-    sha1.update(b':')
-    sha1.update(passwd.encode('utf-8'))
-    # 和库里的密码字段的值作比较，一样的话认证成功，不一样的话，认证失败
-    if user.passwd != sha1.hexidgest():
-        raise APIValueError('passwd', 'Invalid passwd')
-    # 构建返回信息
-    r = web.Response()
-    # 添加cookie
-    r.set_cookie(COOKIE_NAME, user2cookie(
-        user, 86400), max_age=86400, httponly=True)
-    # 只要把返回的实例的密码改成‘******’，库里的密码依然是正确的，以保证真实的密码不会因返回而暴露
-    user.passwd = '******'
-    # 返回的是json数据，所以设置content-type为json的
-    r.content_type = 'application/json'
-    # 把对象转换成json格式返回
-    r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
-    return r
 
 # 登出操作
 
@@ -208,6 +192,101 @@ def api_register_user(*, email, name, passwd):
     r.content_type = 'application/json'
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
     return r
+
+# 登录请求
+
+@post('/api/authenticate')
+def authenticate(*, email, passwd):
+    # 如果email或passwd为空，都说明有错误
+    if not email:
+        raise APIValueError('email', 'Invalid email')
+    if not passwd:
+        raise APIValueError('passwd', 'Invalid passwd')
+    # 根据email在库里查询匹配的用户
+    users = yield from User.findAll('email=?', [email])
+    # 没找到用户，返回用户不存在
+    if len(users) == 0:
+        raise APIValueError('email', 'email not exist')
+    # 取第一个查到用户，理论上就一个
+    user = users[0]
+    # 按存储密码的方式获取出请求传入的密码字段的sha1值
+    sha1 = hashlib.sha1()
+    sha1.update(user.id.encode('utf-8'))
+    sha1.update(b':')
+    sha1.update(passwd.encode('utf-8'))
+    # 和库里的密码字段的值作比较，一样的话认证成功，不一样的话，认证失败
+    if user.passwd != sha1.hexidgest():
+        raise APIValueError('passwd', 'Invalid passwd')
+    # 构建返回信息
+    r = web.Response()
+    # 添加cookie
+    r.set_cookie(COOKIE_NAME, user2cookie(
+        user, 86400), max_age=86400, httponly=True)
+    # 只要把返回的实例的密码改成‘******’，库里的密码依然是正确的，以保证真实的密码不会因返回而暴露
+    user.passwd = '******'
+    # 返回的是json数据，所以设置content-type为json的
+    r.content_type = 'application/json'
+    # 把对象转换成json格式返回
+    r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
+    return r
+
+#----------------------------评论管理---------------------------------------------
+
+#-----------------------------用户管理--------------------------------------------
+
+#-----------------------------博客管理的处理函数----------------------------------
+
+@get('/manage/blogs/create')
+def manage_create_blog():
+    # 写博客页面
+    return {
+        '__template__': 'manage_blog_edit.html',
+        'id': '',
+        'action': '/api/blogs' # 对应HTML页面中VUE的action名字
+    }
+
+@post('/api/blogs')
+def api_create_blog(request, *, name, summary, content):
+    # 只有管理员可以写博客
+    check_admin(request)
+    # name, summary, content 不能为空
+    if not name or not name.strip():
+        raise APIValueError('name', 'name cannot be empty')
+    if not summary or not summary.strip():
+        raise APIValueError('summary', 'summary cannot be empty')
+    if not content or not content.strip():
+        raise APIValueError('content', 'content cannot be empty')
+    # 根据传入的信息，构建一条博客数据
+    blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name,
+                user_image=request.__user__.image, name=name.strip(), summary=summary.strip, content=content.strip())
+    # 保存
+    yield from blog.save()
+    return blog
+
+@get('/blog/{id}')
+def get_blog(id):
+    # 根据博客id查询该博客信息
+    blog = yield from Blog.find(id)
+    # 根据博客id查询该条博客的评论
+    comments = yield from Comment.findAll('blog_id=?', [id], orderBy='created_at desc')
+    # markdown2是个扩展模块，这里把博客正文和评论套入到markdown2中
+    for c in comments:
+        c.html_content = text2html(c.content)
+    blog.html_content = markdown2.markdown(blog.content)
+    # 返回页面
+    return {
+        '__template__': 'blog.html',
+        'blog': blog,
+        'comments': comments
+    }
+
+@get('/api/blogs/{id}')
+def api_get_blog(*, id):
+    # 获取某条博客信息
+    blog = yield from Blog.find(id)
+    return blog
+
+
 
 
 
