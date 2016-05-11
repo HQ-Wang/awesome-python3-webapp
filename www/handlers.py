@@ -16,7 +16,7 @@ import markdown2
 from aiohttp import web
 
 from web_frame import get, post
-from apis import APIValueError, APIResourceNotFoundError, APIPermissionError
+from apis import Page, APIValueError, APIResourceNotFoundError, APIPermissionError
 
 from models import User, Comment, Blog, next_id
 from config import configs
@@ -62,7 +62,6 @@ def user2cookie(user, max_age):
     return '-'.join(L)
 
 # 根据cookie字符串，解析出用户信息相关的
-
 @asyncio.coroutine
 def cookie2user(cookie_str):
     # cookie_str是空则返回
@@ -97,21 +96,44 @@ def cookie2user(cookie_str):
         logging.exception(e)
         return None
 
+# 首页，会显示博客列表
+# @get('/')
+# def index(request):
+# 	summary = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
+# 	blogs = [
+# 		Blog(id='1', name='Test Blog', summary=summary, created_at=time.time()-120),
+# 		Blog(id='2', name='Something New', summary=summary, created_at=time.time()-3600),
+# 		Blog(id='3', name='Learn Swift', summary=summary, created_at=time.time()-7200)
+# 	]
+# 	return {
+# 		'__template__': 'blogs.html',
+# 		'blogs': blogs
+# 	}
+
+# 首页
+
 @get('/')
-def index(request):
-    summary = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
-    blogs = [
-        Blog(id='1', name='Test Blog', summary=summary, created_at=time.time()-120),
-        Blog(id='2', name='Something New', summary=summary, created_at=time.time()-3600),
-        Blog(id='3', name='Learn Swift', summary=summary, created_at=time.time()-7200)
-    ]
+def index(*, page='1'):
+    # 获取到要展示的博客页数是第几页
+    page_index = get_page_index(page)
+    # 查找博客表里的条目数
+    num = yield from Blog.findNumber('count(id)')
+    # 通过Page类来计算当前页的相关信息
+    page = Page(num, page_index)
+    # 如果表里没有条目，则不需要取出
+    if num == 0:
+        blogs = []
+    else:
+        # 否则，根据计算出来的offset（取的初始条目index）和limit（取的条数），来取出条目
+        blogs = yield from Blog.findAll(orderBy='created_at desc', limit=(page.offset, page.limit))
+        # 返回给浏览器
     return {
         '__template__': 'blogs.html',
+        'page': page,
         'blogs': blogs
     }
 
 # 注册页面
-
 @get('/register')
 def register():
     return {
@@ -119,16 +141,13 @@ def register():
     }
 
 # 登录页面
-
 @get('/signin')
 def signin():
     return {
         '__template__': 'signin.html'
     }
 
-
 # 登出操作
-
 @get('/signout')
 def signout(request):
     referer = request.headers.get('Referer')
@@ -138,18 +157,7 @@ def signout(request):
     logging.info('user signed out')
     return r
 
-
-'''
-@get('/api/users')
-def api_get_users():
-    users = yield from User.findAll(orderBy='created_at desc')
-    for u in users:
-        u.passwd = '******'
-    return dict(users=users)
-'''
-
 # 注册请求
-
 @post('/api/users')
 def api_register_user(*, email, name, passwd):
     # 判断name是否存在，且是否只是'\n','\r','\t',' ',这种特殊字符
@@ -194,14 +202,13 @@ def api_register_user(*, email, name, passwd):
     return r
 
 # 登录请求
-
 @post('/api/authenticate')
 def authenticate(*, email, passwd):
     # 如果email或passwd为空，都说明有错误
     if not email:
-        raise APIValueError('email', 'Invalid email')
+        raise APIValueError('email', 'Invalid email.')
     if not passwd:
-        raise APIValueError('passwd', 'Invalid passwd')
+        raise APIValueError('passwd', 'Invalid password.')
     # 根据email在库里查询匹配的用户
     users = yield from User.findAll('email=?', [email])
     # 没找到用户，返回用户不存在
@@ -215,8 +222,8 @@ def authenticate(*, email, passwd):
     sha1.update(b':')
     sha1.update(passwd.encode('utf-8'))
     # 和库里的密码字段的值作比较，一样的话认证成功，不一样的话，认证失败
-    if user.passwd != sha1.hexidgest():
-        raise APIValueError('passwd', 'Invalid passwd')
+    if user.passwd != sha1.hexdigest():
+        raise APIValueError('passwd', 'Invalid password.')
     # 构建返回信息
     r = web.Response()
     # 添加cookie
@@ -231,20 +238,125 @@ def authenticate(*, email, passwd):
     return r
 
 #----------------------------评论管理---------------------------------------------
+# 评论管理页面
+@get('/manage/')
+def manage():
+    return 'redirect:/manage/comments'
 
-#-----------------------------用户管理--------------------------------------------
+# 查看所有评论
+@get('/manage/comments')
+def manage_comments(*, page='1'):
+    return {
+        '__template__': 'manage_comments.html',
+        'page_index': get_page_index(page)
+    }
 
+@get('/api/comments')
+def api_comments(*, page='1'):
+    # 根据page获取评论
+    page_index = get_page_index(page)
+    num = yield from Comment.findNumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, comments=())
+    comments = yield from Comment.findAll(orderBy='created_at desc', limit=(p.offset, p.limit))
+    return dict(page=p, comments=comments)
+
+@post('/api/blogs/{id}/comments')
+def api_create_comment(id, request, *, content):
+    # 对某个博客发表评论
+    user = request.__user__
+    # 必须为登录状态下，评论
+    if user is None:
+        raise APIValueError('content')
+    # 评论不能为空
+    if not content or not content.strip():
+        raise APIValueError('content')
+    # 查询一下博客id是否有对应的博客
+    blog = yield from Blog.find(id)
+    # 没有的话抛出错误
+    if blog is None:
+        raise APIResourceNotFoundError('Blog')
+    # 构建一条评论数据
+    comment = Comment(blog_id=blog.id, user_id=user.id, user_name=user.name, user_image=user.image, content=content.strip())
+    # 保存到评论表里
+    yield from comment.save()
+    return comment
+
+@post('/api/comments/{id}/delete')
+def api_delete_comments(id, request):
+    # 删除某个评论
+    logging.info(id)
+    # 先检查是否是管理员操作，只有管理员才有删除评论权限
+    check_admin(request)
+    # 查询一下评论id是否有对应的评论
+    c = yield from Comment.find(id)
+    # 没有的话抛出错误
+    if c is None:
+        raise APIResourceNotFoundError('Comment')
+    # 有的话删除
+    yield from c.remove()
+    return dict(id=id)
+
+# -----------------------------用户管理--------------------------------------------
+# 显示所有的用户
+@get('/show_all_users')
+def show_all_users():
+    users = yield from User.findAll()
+    logging.info('to index...')
+    # return (404, 'not found')
+    return {
+        '__template__': 'test.html',
+        'users': users
+    }
+
+# 返回所有的用户信息jason格式
+@get('/api/users')
+def api_get_users(request):
+    users = yield from User.findAll(orderBy='created_at desc')
+    logging.info('users = %s and type = %s' % (users, type(users)))
+    for u in users:
+        u.passwd = '******'
+    return dict(users=users)
+
+# 查看所有用户
+@get('/manage/users')
+def manage_users(*, page='1'):
+    return {
+        '__template__': 'manage_users.html',
+        'page_index': get_page_index(page)
+    }
 #-----------------------------博客管理的处理函数----------------------------------
 
+# 博客创建页面
 @get('/manage/blogs/create')
 def manage_create_blog():
-    # 写博客页面
     return {
         '__template__': 'manage_blog_edit.html',
         'id': '',
-        'action': '/api/blogs' # 对应HTML页面中VUE的action名字
+        'action': '/api/blogs'  # 对应HTML页面中VUE的action名字
     }
 
+# 博客管理页面
+@get('/manage/blogs')
+def manage_blogs(*, page='1'):
+    return {
+        '__template__': 'manage_blogs.html',
+        'page_index': get_page_index(page)
+    }
+
+# 获取博客信息
+@get('/api/blogs')
+def api_blogs(*, page='1'):
+    page_index = get_page_index(page)
+    num = yield from Blog.findNumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, blogs=())
+    blogs = yield from Blog.findAll(orderBy='created_at desc', limit=(p.offset, p.limit))
+    return dict(page=p, blogs=blogs)
+
+# 创建博客内容
 @post('/api/blogs')
 def api_create_blog(request, *, name, summary, content):
     # 只有管理员可以写博客
@@ -258,14 +370,14 @@ def api_create_blog(request, *, name, summary, content):
         raise APIValueError('content', 'content cannot be empty')
     # 根据传入的信息，构建一条博客数据
     blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name,
-                user_image=request.__user__.image, name=name.strip(), summary=summary.strip, content=content.strip())
+                user_image=request.__user__.image, name=name.strip(), summary=summary.strip(), content=content.strip())
     # 保存
     yield from blog.save()
     return blog
 
+# 根据博客id查询该博客信息
 @get('/blog/{id}')
 def get_blog(id):
-    # 根据博客id查询该博客信息
     blog = yield from Blog.find(id)
     # 根据博客id查询该条博客的评论
     comments = yield from Comment.findAll('blog_id=?', [id], orderBy='created_at desc')
@@ -280,11 +392,25 @@ def get_blog(id):
         'comments': comments
     }
 
+# 获取某条博客信息
 @get('/api/blogs/{id}')
 def api_get_blog(*, id):
-    # 获取某条博客信息
     blog = yield from Blog.find(id)
     return blog
+
+@post('/api/blogs/{id}/delete')
+def api_delete_blog(id, request):
+    # 删除一条博客
+    logging.info("删除博客的博客ID为：%s" % id)
+    # 先检查是否是管理员操作，只有管理员才有删除评论权限
+    check_admin(request)
+    # 查询一下评论id是否有对应的评论
+    b = yield from Blog.find(id)
+    if b is None:
+        raise APIResourceNotFoundError('Comment')
+    yield from b.remove()
+    return dict(id=id)
+
 
 
 
